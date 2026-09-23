@@ -6,11 +6,15 @@ Targets are found on a fresh screenshot before each click, in one of two ways:
   * color: the built-in demo_page.html gives each button a unique solid color.
 An image for a name takes precedence over its built-in color.
 
+A step "name=text" clicks the target (a text box), replaces its contents and
+types the text.
+
 Safety: fling the mouse into any screen corner to abort (pyautogui failsafe).
 """
 
 import argparse
 import re
+import shlex
 import sys
 import time
 import webbrowser
@@ -35,9 +39,11 @@ COLOR_TARGETS = {
     "apple": (0xFF, 0x00, 0x80),
     "banana": (0x80, 0xFF, 0x00),
     "cherry": (0x80, 0x00, 0xFF),
+    # Text box: use as a typing step, e.g. username=Jane
+    "username": (0xFF, 0x00, 0x00),
 }
 
-SEQUENCE = ["start", "add", "add", "add", "checkbox", "like", "fruit", "banana", "submit"]
+SEQUENCE = ["start", "add*3", "checkbox", "like", "username=Jane Doe", "fruit", "banana", "submit"]
 
 MIN_PIXELS = 200  # color mode: ignore stray pixels that happen to match
 
@@ -106,6 +112,58 @@ def click_at(name, pos, detail, duration):
     print(f"Clicked {name:<12} at {pos}  ({detail})")
 
 
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    class _KEYBDINPUT(ctypes.Structure):
+        _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD),
+                    ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+    class _MOUSEINPUT(ctypes.Structure):  # only here so the union has the right size
+        _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD),
+                    ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+    class _INPUT(ctypes.Structure):
+        class _U(ctypes.Union):
+            _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT)]
+        _anonymous_ = ("u",)
+        _fields_ = [("type", wintypes.DWORD), ("u", _U)]
+
+    def _send_unicode_char(ch):
+        """Type one character regardless of keyboard layout (handles @, umlauts, emoji)."""
+        units = ch.encode("utf-16-le")
+        events = []
+        for i in range(0, len(units), 2):
+            code = int.from_bytes(units[i:i + 2], "little")
+            for flags in (0x0004, 0x0004 | 0x0002):  # KEYEVENTF_UNICODE, then + KEYEVENTF_KEYUP
+                events.append(_INPUT(type=1, ki=_KEYBDINPUT(wScan=code, dwFlags=flags)))
+        arr = (_INPUT * len(events))(*events)
+        if ctypes.windll.user32.SendInput(len(events), arr, ctypes.sizeof(_INPUT)) != len(events):
+            raise OSError("SendInput was blocked (is an elevated window focused?)")
+
+
+def type_text(text, interval):
+    """Type text into the focused element, one character at a time."""
+    for ch in text:
+        if ch == "\n":
+            pyautogui.press("enter", _pause=False)
+        elif ch == "\t":
+            pyautogui.press("tab", _pause=False)
+        elif sys.platform == "win32":
+            _send_unicode_char(ch)
+        else:
+            pyautogui.write(ch, _pause=False)
+        time.sleep(interval)
+
+
+def type_into(name, pos, detail, text, duration, interval):
+    click_at(name, pos, detail, duration)
+    pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "a")  # replace existing text
+    type_text(text, interval)
+    print(f"Typed   {name:<12} {text!r}")
+
+
 def list_targets(targets, confidence):
     screen = grab_screen()
     for name, target in targets.items():
@@ -145,32 +203,45 @@ def capture(name, image_dir):
 
 
 def parse_sequence(steps, targets):
-    """Expand steps like ["start", "add*3"] into target names, validating each one."""
-    names = []
+    """Expand steps like ["start", "add*3", "name=Jane"] into (name, text) pairs.
+
+    text is None for a plain click, or the string to type for "name=text".
+    """
+    sequence = []
     for step in steps:
-        name, _, count = step.strip().lower().partition("*")
+        head, eq, text = step.partition("=")
+        name, _, count = head.strip().lower().partition("*")
         if name not in targets:
             sys.exit(f"Unknown target '{name}'. Choose from: {', '.join(targets)}")
         if count and not count.isdigit():
             sys.exit(f"Bad repeat count in '{step}'; use e.g. add*3")
-        names += [name] * int(count or 1)
-    return names
+        sequence += [(name, text if eq else None)] * int(count or 1)
+    return sequence
+
+
+def describe(step):
+    name, text = step
+    return name if text is None else f"{name}={text!r}"
 
 
 def read_sequence_file(path):
-    """One step per line (or several separated by spaces); '#' starts a comment."""
+    """Steps separated by spaces or lines; quote text with spaces; '#' starts a comment."""
     steps = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        steps += line.split("#", 1)[0].split()
+    for n, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+        try:
+            steps += shlex.split(line, comments=True)
+        except ValueError as e:
+            sys.exit(f"{path} line {n}: {e}")
     return steps
 
 
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
-        epilog="Example: python clicker.py --url https://example.com --no-open login search*2",
+        epilog='Example: python clicker.py --url https://example.com login "search=cheap flights" go',
     )
-    parser.add_argument("steps", nargs="*", help="targets to click in order; name*N repeats (default: built-in demo sequence)")
+    parser.add_argument("steps", nargs="*", help='targets to click in order; name*N repeats, "name=text" types text '
+                                                 "(default: built-in demo sequence)")
     parser.add_argument("-f", "--file", help="read the sequence from a text file instead")
     parser.add_argument("--url", help="page to open (default: demo_page.html)")
     parser.add_argument("--no-open", action="store_true", help="don't open a page; use the one already on screen")
@@ -181,11 +252,13 @@ def main():
     parser.add_argument("--wait", type=float, default=3, help="seconds to wait for the page to load (default 3)")
     parser.add_argument("--speed", type=float, default=0.6, help="seconds per cursor movement (default 0.6)")
     parser.add_argument("--delay", type=float, default=0.5, help="seconds to wait between clicks (default 0.5)")
+    parser.add_argument("--type-interval", type=float, default=0.05, help="seconds between typed characters (default 0.05)")
     parser.add_argument("--list", action="store_true", help="only print where each target was found; don't click")
     args = parser.parse_args()
+    sys.stdout.reconfigure(errors="replace")  # printing emoji/umlauts must never crash a run
 
-    if min(args.delay, args.speed, args.timeout, args.wait) < 0:
-        parser.error("--delay, --speed, --timeout and --wait must be 0 or more")
+    if min(args.delay, args.speed, args.timeout, args.wait, args.type_interval) < 0:
+        parser.error("--delay, --speed, --timeout, --wait and --type-interval must be 0 or more")
     if not 0 < args.confidence <= 1:
         parser.error("--confidence must be between 0 and 1")
 
@@ -200,10 +273,10 @@ def main():
     if args.file and args.steps:
         parser.error("give the sequence either as arguments or with --file, not both")
     steps = read_sequence_file(args.file) if args.file else args.steps
-    sequence = parse_sequence(steps, targets) if steps else SEQUENCE
-    if not sequence:
-        sys.exit("Sequence is empty.")
-    print("Sequence:", " -> ".join(sequence))
+    if args.file and not steps:
+        sys.exit(f"{args.file} has no steps.")
+    sequence = parse_sequence(steps or SEQUENCE, targets)
+    print("Sequence:", " -> ".join(map(describe, sequence)))
 
     if not args.no_open:
         open_page(args.url, args.wait)
@@ -217,18 +290,21 @@ def main():
         time.sleep(1)
 
     prev_name, prev_pos = None, None
-    for i, name in enumerate(sequence):
+    for i, (name, text) in enumerate(sequence):
         if i:
             time.sleep(args.delay)
         if name == prev_name:
-            # Repeat click: the cursor is resting on the element and its hover
+            # Repeat step: the cursor is resting on the element and its hover
             # style may no longer match the image, so reuse the last position.
-            click_at(name, prev_pos, "repeat", args.speed)
-            continue
-        pos, detail = wait_for(name, targets[name], args.confidence, args.timeout)
-        if pos is None:
-            sys.exit(f"Target '{name}' not found on screen after {args.timeout}s ({detail}).")
-        click_at(name, pos, detail, args.speed)
+            pos, detail = prev_pos, "repeat"
+        else:
+            pos, detail = wait_for(name, targets[name], args.confidence, args.timeout)
+            if pos is None:
+                sys.exit(f"Target '{name}' not found on screen after {args.timeout}s ({detail}).")
+        if text is None:
+            click_at(name, pos, detail, args.speed)
+        else:
+            type_into(name, pos, detail, text, args.speed, args.type_interval)
         prev_name, prev_pos = name, pos
     print("Done.")
 

@@ -47,6 +47,14 @@
   [data-marker="banana"] { background: #80FF00; }
   [data-marker="cherry"] { background: #8000FF; color: #fff; }
 
+  /* Text box: solid marker background; the focus ring is white so the marker color stays intact. */
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .field { flex: 1 1 260px; }
+  .field .target { width: 100%; padding: 0 16px; font-weight: 500; cursor: text; }
+  .field .target::placeholder { color: #4a0000; }
+  .field .target:focus { outline: 3px solid #fff; outline-offset: 2px; }
+  [data-marker="username"] { background: #FF0000; }
+
   .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
   .stat { background: var(--bg); border-radius: 8px; padding: 12px; }
   .stat b { display: block; font-size: 22px; }
@@ -76,7 +84,10 @@
     <button class="target" data-marker="submit" id="submit">Submit</button>
   </section>
 
-  <section class="panel">
+  <section class="panel row">
+    <div class="field">
+      <input class="target" data-marker="username" id="username" type="text" placeholder="Your name" autocomplete="off" aria-label="Your name">
+    </div>
     <div class="dropdown">
       <button class="target" data-marker="fruit" id="fruit" aria-haspopup="listbox" aria-expanded="false">Fruit: none ▾</button>
       <ul class="menu" id="fruit-menu" role="listbox" hidden>
@@ -93,6 +104,7 @@
     <div class="stat"><b id="s-agree">No</b><span>Agreed</span></div>
     <div class="stat"><b id="s-likes">0</b><span>Likes</span></div>
     <div class="stat"><b id="s-fruit">—</b><span>Fruit</span></div>
+    <div class="stat"><b id="s-name">—</b><span>Name</span></div>
     <div class="stat"><b id="s-clicks">0</b><span>Total clicks</span></div>
   </section>
 
@@ -138,8 +150,12 @@
   $('agree').onchange = () => log(`Checkbox ${$('agree').checked ? 'ticked' : 'unticked'}`);
   $('like').onclick = () => { state.likes++; log('Liked ❤'); };
   $('submit').onclick = () => {
-    log(`Submitted: started=${state.started}, items=${state.items}, agreed=${$('agree').checked}, likes=${state.likes}, fruit=${state.fruit || 'none'}`);
+    log(`Submitted: started=${state.started}, items=${state.items}, agreed=${$('agree').checked}, likes=${state.likes}, fruit=${state.fruit || 'none'}, name="${$('username').value}"`);
   };
+
+  // Text box: live-update the Name stat while typing; log the final value when it changes.
+  $('username').oninput = () => { $('s-name').textContent = $('username').value || '—'; };
+  $('username').onchange = () => log(`Name set to "${$('username').value}"`);
 
   // Dropdown: toggle opens/closes the menu; picking an option selects it and closes the menu.
   function setMenu(open) {

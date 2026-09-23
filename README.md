@@ -13,7 +13,7 @@ python clicker.py --no-open  # use a page that's already open
 
 ### Your own click sequence
 
-List targets in the order to click them. `name*N` repeats a step. The demo page's targets are `start`, `add`, `checkbox`, `like`, `submit`, and the dropdown: `fruit` plus its options `apple`, `banana` and `cherry`. Any image you capture adds a target of its own (see below).
+List targets in the order to click them. `name*N` repeats a step. The demo page's targets are `start`, `add`, `checkbox`, `like`, `submit`, the text box `username`, and the dropdown: `fruit` plus its options `apple`, `banana` and `cherry`. Any image you capture adds a target of its own (see below).
 
 ```
 python clicker.py start add*3 like checkbox submit
@@ -21,6 +21,21 @@ python clicker.py --file sequence.txt   # one step per line, '#' for comments
 ```
 
 `--delay` sets the wait in seconds between clicks (default `0.5`). For example, `python clicker.py --delay 2 start add*3` waits 2 seconds between clicks.
+
+### Typing into text boxes
+
+A `name=text` step clicks the text box, selects anything already in it, and types the text, so the text replaces the old contents.
+
+```
+python clicker.py "username=Jane Doe" submit
+python clicker.py --type-interval 0.15 "username=Jürgen Müller"   # type more slowly
+```
+
+- Put quotes around the whole step when the text contains spaces.
+- In a sequence file, write `username="Jane Doe"`. A `#` inside quotes is kept as text; outside quotes, it starts a comment.
+- On Windows, characters are sent as Unicode rather than as key presses. That means `@`, umlauts and emoji come out correctly whatever your keyboard layout is.
+- `\n` and tab in the text press Enter and Tab.
+- On a real website, capture the text box with `--capture` like a button. Point at an empty part of the box.
 
 ### Dropdown lists
 
@@ -31,6 +46,10 @@ python clicker.py fruit banana submit
 ```
 
 The option only appears after the menu opens. For each step, the script keeps looking for up to `--timeout` seconds (default 5), so it waits for the menu to open and then clicks the option. `fruit fruit` opens the menu and closes it again.
+
+### Full check of the demo page
+
+`scenarios/full_check.txt` exercises every element on the demo page: buttons, the checkbox, the text box and the dropdown. Its header lists the run command and the end state to expect.
 
 With no sequence given, the script runs the built-in demo sequence. Every name is checked before the mouse moves.
 

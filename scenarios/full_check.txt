@@ -1,0 +1,55 @@
+# Full check: exercises every element on demo_page.html.
+#
+# Run (slowed down so each step is easy to watch):
+#   python clicker.py --delay 1 --speed 0.8 --file scenarios/full_check.txt
+#
+# Expected end state (compare by eye):
+#   Started = Yes
+#   Items   = 3
+#   Agreed  = Yes        log shows: ticked, unticked, ticked
+#   Likes   = 2
+#   Name    = Jürgen Müller @ IEA    no leftover "Jane Doe"
+#   Fruit   = Cherry     log shows: Chose Apple, Chose Banana, Chose Cherry; the menu is closed
+#   Last log line: Submitted: started=true, items=3, agreed=true, likes=2,
+#                  fruit=Cherry, name="Jürgen Müller @ IEA"
+#
+# Notes:
+#   * The Name stat updates live while typing. The log records the name once,
+#     when the box loses focus, so it only shows the final value.
+#   * "Total clicks" is not part of the check: a click on the checkbox label
+#     counts twice (the browser also clicks the box inside it).
+
+# 1. Start
+start
+
+# 2. Add item x3
+add*3
+
+# 3. Checkbox: tick, untick, tick
+checkbox*3
+
+# 4. Like x2
+like*2
+
+# 5. Text box: type a name, then replace it (the second must overwrite the first)
+username="Jane Doe"
+username="Jürgen Müller @ IEA"
+
+# 6a. Dropdown: choose each option in turn (choosing closes the menu)
+fruit
+apple
+fruit
+banana
+fruit
+cherry
+
+# 6b. Open and close the menu without choosing
+fruit    # open
+fruit    # close
+
+# 6c. Open, then click outside (the text box) to close it; Fruit stays Cherry
+fruit
+username
+
+# 7. Submit
+submit

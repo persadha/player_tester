@@ -1,10 +1,12 @@
 # Example click sequence for: python clicker.py --file sequence.txt
-# One step per line; name*N repeats.
-# Targets: start, add, checkbox, like, submit, and the dropdown: fruit -> apple / banana / cherry
+# One or more steps per line; name*N repeats; name="text" types into a text box.
+# Targets: start, add, checkbox, like, submit, username (text box),
+#          and the dropdown: fruit -> apple / banana / cherry
 start
 add*2
 like*3
 checkbox
+username="Jürgen Müller"   # click the text box and type this
 fruit    # open the dropdown...
 cherry   # ...and pick an option
 submit
