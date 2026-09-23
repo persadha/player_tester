@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clicker Demo</title>
+<style>
+  /* Page chrome uses muted colors only, so it never matches a marker color. */
+  :root { --bg: #1e2127; --panel: #2a2e36; --text: #c8ccd4; --muted: #7a8190; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, sans-serif; display: flex; justify-content: center; padding: 32px 16px;
+  }
+  main { width: 100%; max-width: 760px; }
+  h1 { margin: 0 0 4px; font-size: 24px; }
+  .note { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .panel { background: var(--panel); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  .targets { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 16px; }
+
+  /* Marker targets: solid, unique colors. No hover/active color changes,
+     otherwise the script could not find them again after the first click. */
+  .target {
+    height: 72px; border: 0; border-radius: 10px; font: 600 16px system-ui, sans-serif;
+    color: #111; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    gap: 8px; user-select: none;
+  }
+  .target:disabled { cursor: not-allowed; }
+  [data-marker="start"]    { background: #FF00FF; }
+  [data-marker="add"]      { background: #00FFFF; }
+  [data-marker="checkbox"] { background: #FFFF00; }
+  [data-marker="like"]     { background: #00FF00; }
+  [data-marker="submit"]   { background: #FF8000; }
+  .target input { width: 22px; height: 22px; margin: 0; pointer-events: none; }
+
+  /* Custom dropdown: the menu (and its option markers) only exists on screen while open. */
+  .dropdown { position: relative; width: 260px; }
+  .dropdown .target { width: 100%; }
+  .menu {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 10; margin: 0; padding: 8px;
+    list-style: none; background: var(--panel); border: 1px solid #3a3f4a; border-radius: 10px;
+    box-shadow: 0 8px 24px #0008; display: grid; gap: 8px;
+  }
+  .menu[hidden] { display: none; }
+  .menu .target { height: 52px; }
+  [data-marker="fruit"]  { background: #0080FF; }
+  [data-marker="apple"]  { background: #FF0080; }
+  [data-marker="banana"] { background: #80FF00; }
+  [data-marker="cherry"] { background: #8000FF; color: #fff; }
+
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+  .stat { background: var(--bg); border-radius: 8px; padding: 12px; }
+  .stat b { display: block; font-size: 22px; }
+  .stat span { color: var(--muted); font-size: 13px; }
+
+  #log { margin: 0; padding: 0; list-style: none; font: 13px/1.6 ui-monospace, monospace; max-height: 220px; overflow-y: auto; }
+  #log li { color: var(--text); }
+  #log time { color: var(--muted); margin-right: 8px; }
+
+  .ripple {
+    position: fixed; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+    border: 2px solid #ffffffcc; pointer-events: none; animation: ripple .6s ease-out forwards;
+  }
+  @keyframes ripple { to { transform: scale(4); opacity: 0; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Clicker Demo</h1>
+  <p class="note">Keep browser zoom at 100% and this window fully visible, then run <code>python clicker.py</code>.</p>
+
+  <section class="panel targets">
+    <button class="target" data-marker="start" id="start">Start</button>
+    <button class="target" data-marker="add" id="add">Add item</button>
+    <label class="target" data-marker="checkbox"><input type="checkbox" id="agree"> I agree</label>
+    <button class="target" data-marker="like" id="like">Like ❤</button>
+    <button class="target" data-marker="submit" id="submit">Submit</button>
+  </section>
+
+  <section class="panel">
+    <div class="dropdown">
+      <button class="target" data-marker="fruit" id="fruit" aria-haspopup="listbox" aria-expanded="false">Fruit: none ▾</button>
+      <ul class="menu" id="fruit-menu" role="listbox" hidden>
+        <li><button class="target" data-marker="apple" data-value="Apple">Apple</button></li>
+        <li><button class="target" data-marker="banana" data-value="Banana">Banana</button></li>
+        <li><button class="target" data-marker="cherry" data-value="Cherry">Cherry</button></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="panel status">
+    <div class="stat"><b id="s-started">No</b><span>Started</span></div>
+    <div class="stat"><b id="s-items">0</b><span>Items</span></div>
+    <div class="stat"><b id="s-agree">No</b><span>Agreed</span></div>
+    <div class="stat"><b id="s-likes">0</b><span>Likes</span></div>
+    <div class="stat"><b id="s-fruit">—</b><span>Fruit</span></div>
+    <div class="stat"><b id="s-clicks">0</b><span>Total clicks</span></div>
+  </section>
+
+  <section class="panel">
+    <strong>Event log</strong>
+    <ul id="log"></ul>
+  </section>
+</main>
+
+<script>
+  const state = { started: false, items: 0, likes: 0, clicks: 0 };
+  const $ = id => document.getElementById(id);
+
+  function log(msg) {
+    const li = document.createElement('li');
+    li.innerHTML = `<time>${new Date().toLocaleTimeString()}</time>`;
+    li.append(msg);
+    $('log').prepend(li);
+  }
+
+  function render() {
+    $('s-started').textContent = state.started ? 'Yes' : 'No';
+    $('s-items').textContent = state.items;
+    $('s-agree').textContent = $('agree').checked ? 'Yes' : 'No';
+    $('s-likes').textContent = state.likes;
+    $('s-clicks').textContent = state.clicks;
+  }
+
+  // Every click anywhere: ripple + counter, so you can see the script really clicked.
+  document.addEventListener('click', e => {
+    state.clicks++;
+    const r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = e.clientX + 'px';
+    r.style.top = e.clientY + 'px';
+    document.body.append(r);
+    setTimeout(() => r.remove(), 700);
+    render();
+  });
+
+  $('start').onclick = () => { state.started = true; log('Started'); };
+  $('add').onclick = () => { state.items++; log(`Added item #${state.items}`); };
+  $('agree').onchange = () => log(`Checkbox ${$('agree').checked ? 'ticked' : 'unticked'}`);
+  $('like').onclick = () => { state.likes++; log('Liked ❤'); };
+  $('submit').onclick = () => {
+    log(`Submitted: started=${state.started}, items=${state.items}, agreed=${$('agree').checked}, likes=${state.likes}, fruit=${state.fruit || 'none'}`);
+  };
+
+  // Dropdown: toggle opens/closes the menu; picking an option selects it and closes the menu.
+  function setMenu(open) {
+    $('fruit-menu').hidden = !open;
+    $('fruit').setAttribute('aria-expanded', open);
+  }
+  $('fruit').onclick = () => {
+    const open = $('fruit-menu').hidden;
+    setMenu(open);
+    log(`Dropdown ${open ? 'opened' : 'closed'}`);
+  };
+  $('fruit-menu').onclick = e => {
+    const option = e.target.closest('[data-value]');
+    if (!option) return;
+    state.fruit = option.dataset.value;
+    $('fruit').textContent = `Fruit: ${state.fruit} ▾`;
+    $('s-fruit').textContent = state.fruit;
+    setMenu(false);
+    log(`Chose ${state.fruit}`);
+  };
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.dropdown')) setMenu(false);
+  });
+  render();
+</script>
+</body>
+</html>
